@@ -3,14 +3,15 @@
 # File for training denoisers with at most one classifier attached to
 
 from architectures import DENOISERS_ARCHITECTURES, get_architecture, IMAGENET_CLASSIFIERS
-from datasets import get_dataset, DATASETS
+from datasets import get_dataset, load_data, DATASETS
 from test_denoiser import test, test_with_classifier
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.optim import SGD, Optimizer, Adam
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToPILImage
-from train_utils import AverageMeter, accuracy, init_logfile, log, copy_code, requires_grad_
+from train_utils import AverageMeter, accuracy, init_logfile, log, copy_code, requires_grad_, load_data
+from PIL import Image
 
 import argparse
 import datetime
@@ -66,6 +67,9 @@ parser.add_argument('--azure_datastore_path', type=str, default='',
                     help='Path to imagenet on azure')
 parser.add_argument('--philly_imagenet_path', type=str, default='',
                     help='Path to imagenet on philly')
+parser.add_argument('--clean_img_dir', type=str, default='')
+parser.add_argument('--noised_img_dir', type=str, default='')
+
 args = parser.parse_args()
 
 if args.azure_datastore_path:
@@ -88,19 +92,22 @@ def main():
     # Copy code to output directory
     copy_code(args.outdir)
     
-    train_dataset = get_dataset(args.dataset, 'train')
-    test_dataset = get_dataset(args.dataset, 'test')
+    # train_dataset = get_dataset(args.dataset, 'train')
+    # test_dataset = get_dataset(args.dataset, 'test')
     pin_memory = (args.dataset == "imagenet")
-    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch,
-                              num_workers=args.workers, pin_memory=pin_memory)
-    test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch,
-                             num_workers=args.workers, pin_memory=pin_memory)
+    # train_loader = DataLoader(train_dataset, shuffle=False, batch_size=args.batch,
+    #                           num_workers=args.workers, pin_memory=pin_memory)
+    # test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch,
+    #                          num_workers=args.workers, pin_memory=pin_memory)
+    train_loader = load_data(args.noised_img_dir,args.clean_img_dir,mode="train")
+    test_loader = load_data(args.noised_img_dir,args.clean_img_dir,mode="test")
     ## This is used to test the performance of the denoiser attached to a cifar10 classifier
-    cifar10_test_loader = DataLoader(get_dataset('cifar10', 'test'), shuffle=False, batch_size=args.batch,
-                             num_workers=args.workers, pin_memory=pin_memory)
+    # cifar10_test_loader = DataLoader(get_dataset('cifar10', 'test'), shuffle=False, batch_size=args.batch,
+    #                          num_workers=args.workers, pin_memory=pin_memory)
 
     if args.pretrained_denoiser:
-        checkpoint = torch.load(args.pretrained_denoiser)
+        print(f"torch.cuda.is_available:{torch.cuda.is_available()}")
+        checkpoint = torch.load(args.pretrained_denoiser,weights_only=True)
         assert checkpoint['arch'] == args.arch
         denoiser = get_architecture(checkpoint['arch'], args.dataset)
         denoiser.load_state_dict(checkpoint['state_dict'])
@@ -161,11 +168,12 @@ def main():
         criterion = CrossEntropyLoss(size_average=None, reduce=None, reduction = 'mean').cuda()
         best_acc = 0
 
+    stopcnt=0
     for epoch in range(starting_epoch, args.epochs):
         before = time.time()
         if args.objective == 'denoising':
             train_loss = train(train_loader, denoiser, criterion, optimizer, epoch, args.noise_sd)
-            test_loss = test(test_loader, denoiser, criterion, args.noise_sd, args.print_freq, args.outdir)
+            test_loss = test(test_loader, denoiser, criterion, args.noise_sd, args.print_freq, args.outdir,epoch)
             test_acc = 'NA'
         elif args.objective in ['classification', 'stability']:
             train_loss = train(train_loader, denoiser, criterion, optimizer, epoch, args.noise_sd, clf)
@@ -212,6 +220,15 @@ def main():
             'optimizer': optimizer.state_dict(),
         }, os.path.join(args.outdir, 'best.pth.tar'))
 
+        # early stop
+        if test_loss>best_loss:
+            stopcnt+=1
+        else:
+            stopcnt=0
+        if stopcnt==3:
+            log(logfilename,"test loss hasnot decreased for 3 epochs, do early stop.")
+            break
+
 
 
 def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: Optimizer, epoch: int, noise_sd: float, classifier: torch.nn.Module=None):
@@ -236,18 +253,29 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
     if classifier:
         classifier.eval()
 
-    for i, (inputs, targets) in enumerate(loader):
+    print(f"loader len: {len(loader)}")
+    for i, (inputs, targets, noised) in enumerate(loader):
         # measure data loading time
+        ######
+        # if os.environ["DEBUG"]=="True":
+            # print(f"inputs: {inputs}\ntargets: {targets}")
+            # img=toPilImage(inputs[0])
+            # img.save(f"supervise/train_set_img_{epoch}.png")
+            # print(loader.dataset.samples[0][0])
+        ######
         data_time.update(time.time() - end)
 
         inputs = inputs.cuda()
-        targets = targets.cuda()
+        # targets = targets.cuda()
+        noised = noised.cuda()
 
         # augment inputs with noise
-        noise = torch.randn_like(inputs, device='cuda') * noise_sd
+        # TODO use adversarial pattern as noise
+        # noise = torch.randn_like(inputs, device='cuda') * noise_sd
 
         # compute output
-        outputs = denoiser(inputs + noise)
+        # outputs = denoiser(inputs + noise)
+        outputs = denoiser(noised)
         if classifier:
             outputs = classifier(outputs)
         
@@ -261,7 +289,7 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
             loss = criterion(outputs, targets)
 
         # record loss
-        losses.update(loss.item(), inputs.size(0))
+        losses.update(loss.item())
 
         # compute gradient and do SGD step
         optimizer.zero_grad()

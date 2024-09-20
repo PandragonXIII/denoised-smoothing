@@ -92,6 +92,7 @@ class RobustAPI(object):
         prediction_logs = []
         for i in range(N):
             image_path =  os.path.join(self.tmp_images_dir, "sample_%d.png"%int(self.image_counter))
+            raise NotImplementedError
             noise = np.random.randn(*clean_img.shape) * noise_sd
             img = np.clip(clean_img + noise, 0, 1)
             

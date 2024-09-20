@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from architectures import get_architecture, IMAGENET_CLASSIFIERS
-from datasets import get_dataset, DATASETS
+from datasets import get_dataset, load_data, DATASETS
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.optim import SGD, Optimizer, Adam
 from torch.optim.lr_scheduler import StepLR
@@ -39,18 +39,19 @@ def main(args):
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
-    test_dataset = get_dataset(args.dataset, 'test')
-    pin_memory = (args.dataset == "imagenet")
+    # test_dataset = get_dataset(args.dataset, 'test')
+    # pin_memory = (args.dataset == "imagenet")
 
     if args.test_subset:
         subset_len = int(len(test_dataset)/100)
         test_dataset, _ = torch.utils.data.random_split(test_dataset, [subset_len, len(test_dataset) - subset_len])
 
-    test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch,
-                             num_workers=args.workers, pin_memory=pin_memory)
+    # test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch,
+    #                          num_workers=args.workers, pin_memory=pin_memory)
+    test_loader = load_data(args.noised_img_dir,args.clean_img_dir,mode="test")
 
     denoising_criterion = MSELoss(size_average=None, reduce=None, reduction = 'mean').cuda()
-    test_loss = test(test_loader, denoiser, denoising_criterion, args.noise_sd, args.print_freq, args.outdir)
+    test_loss = test(test_loader, denoiser, denoising_criterion, args.noise_sd, args.print_freq, args.outdir,epoch=0)
     print('MSE of the denoiser is {}'.format(test_loss))
     results['denoising_MSE'] = test_loss
     if args.clf != '':
@@ -80,7 +81,7 @@ def main(args):
 
     return results
 
-def test(loader: DataLoader, model: torch.nn.Module, criterion, noise_sd: float, print_freq: int, outdir: str):
+def test(loader: DataLoader, model: torch.nn.Module, criterion, noise_sd: float, print_freq: int, outdir: str, epoch: int):
     """
     A function to test the denoising performance of a denoiser (i.e. MSE objective)
         :param loader:DataLoader: test dataloader
@@ -99,21 +100,24 @@ def test(loader: DataLoader, model: torch.nn.Module, criterion, noise_sd: float,
     model.eval()
 
     with torch.no_grad():
-        for i, (inputs, targets) in enumerate(loader):
+        for i, (inputs, targets, noised) in enumerate(loader):
             # measure data loading time
             data_time.update(time.time() - end)
 
             inputs = inputs.cuda()
-            targets = targets.cuda()
+            # targets = targets.cuda()
+            noised = noised.cuda()
 
             # augment inputs with noise
-            noise = torch.randn_like(inputs, device='cuda') * noise_sd
+            # TODO change noise
+            # noise = torch.randn_like(inputs, device='cuda') * noise_sd
 
-            outputs = model(inputs + noise)
+            # outputs = model(inputs + noise)
+            outputs = model(noised)
             loss = criterion(outputs, inputs)
 
             # record loss
-            losses.update(loss.item(), inputs.size(0))
+            losses.update(loss.item())
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -126,13 +130,21 @@ def test(loader: DataLoader, model: torch.nn.Module, criterion, noise_sd: float,
                       'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
                     i, len(loader), batch_time=batch_time,
                     data_time=data_time, loss=losses))
+        inputs=loader[2][0]
+        noised=loader[2][2]
+        # noised = inputs+ torch.randn_like(inputs, device='cpu') * noise_sd
+        outputs=model(noised)
+
+        pil=toPilImage(noised[0].cpu())
+        image_path = os.path.join(outdir, 'noised.png')
+        pil.save(image_path)
 
         pil = toPilImage(inputs[0].cpu())
         image_path = os.path.join(outdir, 'clean.png')
         pil.save(image_path)
 
         pil = toPilImage(outputs[0].cpu())
-        image_path = os.path.join(outdir, 'denoised.png')
+        image_path = os.path.join(outdir, f'denoised_{epoch}.png')
         pil.save(image_path)
 
         return losses.avg
@@ -220,6 +232,8 @@ if __name__ == "__main__":
                         help="standard deviation of noise distribution for data augmentation")
     parser.add_argument('--test-subset', action='store_true',
                         help='evaluate only a predifined subset ~(1%) of the test set')
+    parser.add_argument('--clean_img_dir', type=str, default='')
+    parser.add_argument('--noised_img_dir', type=str, default='')
     args = parser.parse_args()
     
     main(args)

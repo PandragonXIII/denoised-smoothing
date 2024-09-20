@@ -1,8 +1,8 @@
 import os
 import shutil
 
-import torch
-
+import torch, torchvision
+from PIL import Image
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""

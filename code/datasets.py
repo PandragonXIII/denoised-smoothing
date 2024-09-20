@@ -15,6 +15,8 @@ import torch
 # make sure your val directory is preprocessed to look like the train directory, e.g. by running this script
 # https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh
 IMAGENET_LOC_ENV = "IMAGENET_DIR"
+os.environ["IMAGENET_DIR"]="/home/qxy/repository/denoised-smoothing/data/my_dataset"
+os.environ["DEBUG"]="True"
 
 # list of all datasets
 DATASETS = ["imagenet", "imagenet32", "cifar10"]
@@ -88,7 +90,7 @@ def _imagenet(split: str) -> Dataset:
     if split == "train":
         subdir = os.path.join(dir, "train")
         transform = transforms.Compose([
-            transforms.RandomSizedCrop(224),
+            transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()
         ])

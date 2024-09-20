@@ -1,0 +1,62 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python 调试程序: 包含参数的当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "${command:pickArgs}"
+            ]
+        },
+        {
+            "name": "Python 调试程序: 当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "train denoiser",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset",
+                "imagenet",
+                "--arch",
+                "imagenet_dncnn",
+                "--outdir",
+                "denoiser_output_dir/gaussian_noise",
+                "--noise_sd",
+                "0.12",
+                "--epochs",
+                "20",
+                "--batch",
+                "1",
+                "--lr",
+                "1e-3",
+                "--lr_step_size",
+                "10",
+                "--gamma",
+                "0.5",
+                "--gpu",
+                "2",
+                "--pretrained-denoiser",
+                "/home/qxy/repository/denoised-smoothing/pretrained_models/trained_denoisers/imagenet/mse_obj/dncnn_5epoch_lr1e-4/noise_0.12/best.pth.tar",
+                "--optimizer",
+                "SGD",
+                "--noised_img_dir",
+                "data/gaussian_dataset_with_clean",
+                "--clean_img_dir",
+                "data/my_dataset_clean"
+            ]
+        }
+    ]
+}
