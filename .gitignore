@@ -108,3 +108,4 @@ pretrained_models/
 pretrained_models.tar
 denoiser_output_dir/
 test_output_dir/
+code/manual_test.py

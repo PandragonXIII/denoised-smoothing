@@ -310,8 +310,8 @@ def load_data(data_pth, augmentation=False, testset_size = 0.2, batch=1):
     testset = data[:testset_size]
     trainset = data[testset_size:]
     logger.info(f"created Train and Test set.\n\
-                train set size: {len(data)-testset_size}\n\
-                test set size: {testset_size}")
+                train set size: ~{(len(data)-testset_size)*batch}\n\
+                test set size: ~{testset_size*batch}")
     return trainset,testset
 
 def argumentation(noised,clean)->list[tuple[torch.Tensor,torch.Tensor]]:
