@@ -3,6 +3,9 @@
 - [x] train denoiser
 - [x] modify code for denoise
 - [ ] evaluate denoiser
+    - [x] train& test loss problem: 训练/测试时没问题，但用生成的图片再算loss就很大
+        ~~图片tensor size问题？~~
+        数据范围超了？True
 
 
 
@@ -13,4 +16,4 @@
 - [ ] 多造数据
     - [x] 改代码
 - [ ] 数据增强
-- [ ] 改文章intuition的图
+- [x] 改文章intuition的图

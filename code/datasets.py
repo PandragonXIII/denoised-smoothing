@@ -10,6 +10,11 @@ import numpy as np
 import os
 import pickle
 import torch
+import torchvision.transforms.v2 as ts
+import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 # set this environment variable to the location of your imagenet directory if you want to read ImageNet data.
 # make sure your val directory is preprocessed to look like the train directory, e.g. by running this script
@@ -257,6 +262,71 @@ class ImageNetDS(Dataset):
         return True
 
 
+def load_data(data_pth, augmentation=False, testset_size = 0.2, batch=1):
+    """
+    load train and test data from given directory
+    `data_pth/all` and `data_pth/clean` are required
+
+    """
+    adv_pth = os.path.join(data_pth,"noised")
+    clean_path = os.path.join(data_pth,"clean")
+    data = []
+    trans = transforms.Compose([transforms.ToTensor(),transforms.Resize([224,224])]) 
+    # trans = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),torchvision.transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))])
+    filenames = os.listdir(adv_pth)
+    while len(filenames)>0:
+        if len(filenames)%20==0: # show progress in extremely slow cases
+            logger.info(f"{len(filenames)} imgs remaining")
+        #create batch
+        badv,bclean = [],[]
+        for i in range(batch):
+            if len(filenames)==0:
+                break
+            fn = filenames.pop()
+            # process single image
+            img = Image.open(os.path.join(adv_pth,fn)).convert("RGB")
+            clean = Image.open(os.path.join(clean_path,fn.split('_')[-1])).convert("RGB")
+            img,clean = trans(img),trans(clean)
+            img,clean = torch.unsqueeze(img,0),torch.unsqueeze(clean,0) # 填充一维
+            # add img to batch
+            badv.append(img)
+            bclean.append(clean)
+        # stack batch
+        badv,bclean = torch.cat(badv,dim=0),torch.cat(bclean,dim=0)
+
+        assert img.shape==torch.Size([1,3,224,224]), "Wrong Image dimension"
+        data.append(
+            (bclean,"default_label",badv)
+        )
+        if augmentation: # do data augmentation
+            transformed_data = argumentation(badv,bclean)
+            reformated_data = [(c,"default_label",n) for c,n in transformed_data]
+            data.extend(reformated_data)
+
+    
+    # separate train set and test set
+    random.shuffle(data)
+    testset_size = int(len(data)*testset_size)
+    testset = data[:testset_size]
+    trainset = data[testset_size:]
+    logger.info(f"created Train and Test set.\n\
+                train set size: {len(data)-testset_size}\n\
+                test set size: {testset_size}")
+    return trainset,testset
+
+def argumentation(noised,clean)->list[tuple[torch.Tensor,torch.Tensor]]:
+    """
+    do data argumentation while loading data
+    """
+    # TODO
+    logger.info("start image argumentation")
+    batch = torch.concat([noised,clean],dim=0)
+    res = []
+    processor = [ts.RandomHorizontalFlip(p=1.0),ts.RandomVerticalFlip(p=1.0),ts.RandomRotation([90,90]),ts.RandomRotation([-90,-90]),ts.RandomRotation([180,180])]
+    for p in processor:
+        processed_tensor = p(batch)
+        res.append((processed_tensor[0],processed_tensor[1]))
+    return res
 
 if __name__ == "__main__":
     dataset = get_dataset('imagenet32', 'train')

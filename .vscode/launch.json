@@ -52,10 +52,8 @@
                 "/home/qxy/repository/denoised-smoothing/pretrained_models/trained_denoisers/imagenet/mse_obj/dncnn_5epoch_lr1e-4/noise_0.12/best.pth.tar",
                 "--optimizer",
                 "SGD",
-                "--noised_img_dir",
-                "data/gaussian_dataset_with_clean",
-                "--clean_img_dir",
-                "data/my_dataset_clean"
+                "--data_dir",
+                "data/coco2017_test_gaussian"
             ]
         }
     ]

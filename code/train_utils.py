@@ -4,6 +4,10 @@ import shutil
 import torch, torchvision
 from PIL import Image
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -70,4 +74,4 @@ def copy_code(outdir):
         if not os.path.exists(codedir):
             os.mkdir(codedir)
         shutil.copy2(os.path.join(r,f), os.path.join(codedir,f))
-    print("Code copied to '{}'".format(outdir))
+    logger.info("Code copied to '{}'".format(outdir))

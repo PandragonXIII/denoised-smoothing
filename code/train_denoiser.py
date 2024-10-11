@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 # File for training denoisers with at most one classifier attached to
 
+import logging.config
 from architectures import DENOISERS_ARCHITECTURES, get_architecture, IMAGENET_CLASSIFIERS
 from datasets import get_dataset, load_data, DATASETS
 from test_denoiser import test, test_with_classifier
@@ -10,7 +11,7 @@ from torch.optim import SGD, Optimizer, Adam
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToPILImage
-from train_utils import AverageMeter, accuracy, init_logfile, log, copy_code, requires_grad_, load_data
+from train_utils import AverageMeter, accuracy, init_logfile, log, copy_code, requires_grad_
 from PIL import Image
 
 import argparse
@@ -67,10 +68,29 @@ parser.add_argument('--azure_datastore_path', type=str, default='',
                     help='Path to imagenet on azure')
 parser.add_argument('--philly_imagenet_path', type=str, default='',
                     help='Path to imagenet on philly')
-parser.add_argument('--clean_img_dir', type=str, default='')
-parser.add_argument('--noised_img_dir', type=str, default='')
+parser.add_argument('--data_dir', type=str, default='')
+parser.add_argument('--augmentation', action='store_true')
 
 args = parser.parse_args()
+
+if not os.path.exists(args.outdir):
+    os.mkdir(args.outdir)
+
+import logging, yaml
+with open("/home/qxy/py_logging.yaml",'r') as f:
+    input = f.read()
+    setting = yaml.safe_load(input)
+# setting["handlers"].pop("console")
+setting["root"]["handlers"].remove("console")
+for handl in setting["handlers"]:
+    try:
+        logfilep = os.path.join(args.outdir,setting["handlers"][handl]["filename"])
+        setting["handlers"][handl]["filename"] = logfilep
+    except: 
+        pass
+logging.config.dictConfig(setting)
+logging.basicConfig(filemode="w")
+logger = logging.getLogger(__name__)
 
 if args.azure_datastore_path:
     os.environ['IMAGENET_DIR_AZURE'] = os.path.join(args.azure_datastore_path, 'datasets/imagenet_zipped')
@@ -99,20 +119,21 @@ def main():
     #                           num_workers=args.workers, pin_memory=pin_memory)
     # test_loader = DataLoader(test_dataset, shuffle=False, batch_size=args.batch,
     #                          num_workers=args.workers, pin_memory=pin_memory)
-    train_loader = load_data(args.noised_img_dir,args.clean_img_dir,mode="train")
-    test_loader = load_data(args.noised_img_dir,args.clean_img_dir,mode="test")
+    logger.info("loading data...")
+    train_loader, test_loader = load_data(args.data_dir, batch = args.batch, augmentation=args.augmentation)
     ## This is used to test the performance of the denoiser attached to a cifar10 classifier
     # cifar10_test_loader = DataLoader(get_dataset('cifar10', 'test'), shuffle=False, batch_size=args.batch,
     #                          num_workers=args.workers, pin_memory=pin_memory)
 
     if args.pretrained_denoiser:
-        print(f"torch.cuda.is_available:{torch.cuda.is_available()}")
+        logger.info(f"torch.cuda.is_available:{torch.cuda.is_available()}")
         checkpoint = torch.load(args.pretrained_denoiser,weights_only=True)
         assert checkpoint['arch'] == args.arch
         denoiser = get_architecture(checkpoint['arch'], args.dataset)
         denoiser.load_state_dict(checkpoint['state_dict'])
     else:
         denoiser = get_architecture(args.arch, args.dataset)
+    logger.info("Loaded denoiser model.")
 
     if args.optimizer == 'Adam':
         optimizer = Adam(denoiser.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -121,6 +142,7 @@ def main():
     elif args.optimizer == 'AdamThenSGD':
         optimizer = Adam(denoiser.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
+    logger.info("Loaded optimizer.")
 
     starting_epoch = 0
     logfilename = os.path.join(args.outdir, 'log.txt')
@@ -128,23 +150,24 @@ def main():
     ## Resume from checkpoint if exists and if resume flag is True
     denoiser_path = os.path.join(args.outdir, 'checkpoint.pth.tar')
     if args.resume and os.path.isfile(denoiser_path):
-        print("=> loading checkpoint '{}'".format(denoiser_path))
+        logger.info("=> loading checkpoint '{}'".format(denoiser_path))
         checkpoint = torch.load(denoiser_path,
                                 map_location=lambda storage, loc: storage)
         assert checkpoint['arch'] == args.arch
         starting_epoch = checkpoint['epoch']
         denoiser.load_state_dict(checkpoint['state_dict'])
         if starting_epoch >= args.start_sgd_epoch and args.optimizer == 'AdamThenSGD ': # Do adam for few steps thaen continue SGD
-            print("-->[Switching from Adam to SGD.]")
+            logger.info("-->[Switching from Adam to SGD.]")
             args.lr = args.start_sgd_lr
             optimizer = SGD(denoiser.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
             scheduler = StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
         
         optimizer.load_state_dict(checkpoint['optimizer'])
-        print("=> loaded checkpoint '{}' (epoch {})"
+        logger.info("=> loaded checkpoint '{}' (epoch {})"
                         .format(denoiser_path, checkpoint['epoch']))
     else:
-        if args.resume: print("=> no checkpoint found at '{}'".format(args.outdir))
+        if args.resume: 
+            logger.warning("=> no checkpoint found at '{}'".format(args.outdir))
         init_logfile(logfilename, "epoch\ttime\tlr\ttrainloss\ttestloss\ttestAcc")
 
 
@@ -169,6 +192,7 @@ def main():
         best_acc = 0
 
     stopcnt=0
+    logger.info("-----start training-----")
     for epoch in range(starting_epoch, args.epochs):
         before = time.time()
         if args.objective == 'denoising':
@@ -194,7 +218,7 @@ def main():
 
         # Switch from Adam to SGD
         if epoch == args.start_sgd_epoch and args.optimizer == 'AdamThenSGD ': # Do adam for few steps thaen continue SGD
-            print("-->[Switching from Adam to SGD.]")
+            logger.info("-->[Switching from Adam to SGD.]")
             args.lr = args.start_sgd_lr
             optimizer = SGD(denoiser.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
             scheduler = StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
@@ -238,7 +262,7 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
         :param denoiser:torch.nn.Module: the denoiser being trained
         :param criterion: loss function
         :param optimizer:Optimizer: optimizer used during trainined
-        :param epoch:int: the current epoch (for logging)
+        :param epoch:int: the current epoch (for logger)
         :param noise_sd:float: the std-dev of the Guassian noise perturbation of the input
         :param classifier:torch.nn.Module=None: a ``freezed'' classifier attached to the denoiser 
                                                 (required classifciation/stability objectives), None for denoising objective 
@@ -253,16 +277,9 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
     if classifier:
         classifier.eval()
 
-    print(f"loader len: {len(loader)}")
+    logger.debug(f"loader len: {len(loader)}")
     for i, (inputs, targets, noised) in enumerate(loader):
         # measure data loading time
-        ######
-        # if os.environ["DEBUG"]=="True":
-            # print(f"inputs: {inputs}\ntargets: {targets}")
-            # img=toPilImage(inputs[0])
-            # img.save(f"supervise/train_set_img_{epoch}.png")
-            # print(loader.dataset.samples[0][0])
-        ######
         data_time.update(time.time() - end)
 
         inputs = inputs.cuda()
@@ -270,12 +287,15 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
         noised = noised.cuda()
 
         # augment inputs with noise
-        # TODO use adversarial pattern as noise
+        # use adversarial pattern as noise
         # noise = torch.randn_like(inputs, device='cuda') * noise_sd
 
         # compute output
         # outputs = denoiser(inputs + noise)
         outputs = denoiser(noised)
+        # clip to 0-1
+        outputs = torch.clamp(outputs, 0, 1)
+
         if classifier:
             outputs = classifier(outputs)
         
@@ -289,7 +309,7 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
             loss = criterion(outputs, targets)
 
         # record loss
-        losses.update(loss.item())
+        losses.update(loss.item(), inputs.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -301,7 +321,7 @@ def train(loader: DataLoader, denoiser: torch.nn.Module, criterion, optimizer: O
         end = time.time()
 
         if i % args.print_freq == 0:
-            print('Epoch: [{0}][{1}/{2}]\t'
+            logger.info('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(

@@ -7,7 +7,7 @@ from torch.nn import MSELoss, CrossEntropyLoss
 from torch.optim import SGD, Optimizer, Adam
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from torchvision.transforms import ToPILImage
+from torchvision.transforms import ToPILImage,ToTensor
 from train_utils import AverageMeter, accuracy, init_logfile, log
 
 import argparse
@@ -16,6 +16,9 @@ import numpy as np
 import os
 import time
 import torch
+
+import logging
+logger = logging.getLogger(__name__)
 
 toPilImage = ToPILImage()
 
@@ -117,33 +120,29 @@ def test(loader: DataLoader, model: torch.nn.Module, criterion, noise_sd: float,
             loss = criterion(outputs, inputs)
 
             # record loss
-            losses.update(loss.item())
+            losses.update(loss.item(), inputs.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
 
             if i % print_freq == 0:
-                print('Test: [{0}/{1}]\t'
+                logger.info('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
                     i, len(loader), batch_time=batch_time,
                     data_time=data_time, loss=losses))
-        inputs=loader[2][0]
-        noised=loader[2][2]
-        # noised = inputs+ torch.randn_like(inputs, device='cpu') * noise_sd
-        outputs=model(noised)
 
-        pil=toPilImage(noised[0].cpu())
+        pil=toPilImage(torch.clamp(noised[0],0,1).cpu())
         image_path = os.path.join(outdir, 'noised.png')
         pil.save(image_path)
 
-        pil = toPilImage(inputs[0].cpu())
+        pil = toPilImage(torch.clamp(inputs[0],0,1).cpu())
         image_path = os.path.join(outdir, 'clean.png')
         pil.save(image_path)
 
-        pil = toPilImage(outputs[0].cpu())
+        pil = toPilImage(torch.clamp(outputs[0],0,1).cpu())
         image_path = os.path.join(outdir, f'denoised_{epoch}.png')
         pil.save(image_path)
 

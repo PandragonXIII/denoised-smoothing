@@ -105,6 +105,11 @@ def get_architecture(arch: str, dataset: str, pytorch_pretrained: bool=False) ->
         model = torch.nn.DataParallel(DnCNN(image_channels=3, depth=17, n_channels=64)).cuda()
         cudnn.benchmark = True
         return model
+    elif arch == "small_dncnn":
+        model =torch.nn.DataParallel(DnCNN(image_channels=3, depth=13, n_channels=64)).cuda()
+        cudnn.benchmark = True
+        raise NotImplementedError
+        return model
     elif arch == 'imagenet_memnet':
         model = torch.nn.DataParallel(MemNet(in_channels=3, channels=64, num_memblock=3, num_resblock=6)).cuda()
         cudnn.benchmark = True
